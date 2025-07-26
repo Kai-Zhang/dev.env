@@ -32,7 +32,7 @@ function setup_ubuntu() {
   fi
   ${SUDO} apt update
   ${SUDO} apt upgrade
-  ${SUDO} apt install -y git openjdk-17-jdk unzip wget zsh
+  ${SUDO} apt install -y ack fuse3 git jq libfuse-dev libfuse3-dev make nodejs openjdk-17-jdk unzip vim wget zsh
 
   git clone https://github.com/Kai-Zhang/dev.env.git ${REPO_ROOT}
 
@@ -45,8 +45,10 @@ function setup_ubuntu() {
     cd ${REPO_ROOT} && git add -A && git commit -m "local changes" && cd -
     export https_proxy=http://${PROXY} http_proxy=http://${PROXY} all_proxy=sock5://${PROXY}
   fi
-  rm ~/.zshrc
+  rm -f ~/.zshrc
   ln -s ${REPO_ROOT}/linux/zshrc ~/.zshrc
+  rm -f ~/.vimrc
+  ln -s ${REPO_ROOT}/vimrc ~/.vimrc
 
   ${SUDO} tic -x -o /usr/share/terminfo/ ${REPO_ROOT}/ghostty.ti
 

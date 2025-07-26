@@ -92,7 +92,7 @@ export LANG=en_US.UTF-8
 # else
 #   export EDITOR='nvim'
 # fi
-export EDITOR=nvim
+export EDITOR=vim
 
 # Java flags
 export JAVA_HOME=/usr/lib/jvm/openjdk-17-jdk
@@ -112,4 +112,3 @@ export JAVA_HOME=/usr/lib/jvm/openjdk-17-jdk
 # alias zshconfig="mate ~/.zshrc"
 # alias ohmyzsh="mate ~/.oh-my-zsh"
 alias glog="git log --graph --abbrev-commit --decorate --format=format:'%C(bold blue)%h%C(reset) - %C(bold cyan)%aD%C(reset) %C(bold green)(%ar)%C(reset)%C(bold yellow)%d%C(reset)%n''          %C(white)%s%C(reset) %C(dim white)- %C(bold blue)<%an>%C(reset)'"
-alias vim=nvim
