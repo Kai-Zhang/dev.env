@@ -36,10 +36,11 @@ function setup_ubuntu() {
 
   git clone https://github.com/Kai-Zhang/dev.env.git ${REPO_ROOT}
 
-  yes | sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
+  sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" </dev/null
+  ${SUDO} chsh -s "$(command -v zsh)" "$USER"
   if [ -n "${PROXY}" ]; then
-    sed -i "s/# proxy_addr=.*$/# proxy_addr=${PROXY}/g" ${REPO_ROOT}/linux/zshrc
-    sed -i '/# export https_proxy=.*$/ s/^#//' ${REPO_ROOT}/linux/zshrc
+    sed -i "s/# proxy_addr=.*$/proxy_addr=${PROXY}/g" ${REPO_ROOT}/linux/zshrc
+    sed -i '/# export https_proxy=.*$/ s/^# //' ${REPO_ROOT}/linux/zshrc
     git config -f ${REPO_ROOT}/.git/config user.name local
     git config -f ${REPO_ROOT}/.git/config user.email foo@example.com
     cd ${REPO_ROOT} && git add -A && git commit -m "local changes" && cd -
