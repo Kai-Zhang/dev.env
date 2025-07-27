@@ -38,6 +38,8 @@ function setup_ubuntu() {
 
   sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" </dev/null
   ${SUDO} chsh -s "$(command -v zsh)" "$USER"
+  cp ~/.oh-my-zsh/themes/geoffgarside.zsh-theme ~/.oh-my-zsh/custom/themes/geoffgarside-custom.zsh-theme
+  sed -i -E '/^PROMPT=/{ /%n@%m/! s/%n/%n@%m/ }' ~/.oh-my-zsh/custom/themes/geoffgarside-custom.zsh-theme
   if [ -n "${PROXY}" ]; then
     sed -i "s/# proxy_addr=.*$/proxy_addr=${PROXY}/g" ${REPO_ROOT}/linux/zshrc
     sed -i '/# export https_proxy=.*$/ s/^# //' ${REPO_ROOT}/linux/zshrc
@@ -48,8 +50,8 @@ function setup_ubuntu() {
   fi
   rm -f ~/.zshrc
   ln -s ${REPO_ROOT}/linux/zshrc ~/.zshrc
-  rm -f ~/.vimrc
-  ln -s ${REPO_ROOT}/vimrc ~/.vimrc
+  rm -f /etc/vim/vimrc.local
+  ${SUDO} ln -s ${REPO_ROOT}/vimrc /etc/vim/vimrc.local
 
   ${SUDO} tic -x -o /usr/share/terminfo/ ${REPO_ROOT}/ghostty.ti
 
