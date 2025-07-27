@@ -82,6 +82,7 @@ source $ZSH/oh-my-zsh.sh
 # proxy settings
 # proxy_addr=127.0.0.1:7890
 # export https_proxy=http://${proxy_addr} http_proxy=http://${proxy_addr} all_proxy=socks5://${proxy_addr}
+export no_proxy='localhost,127.0.0.1,::1,.internal,.local'
 
 # You may need to manually set your language environment
 export LANG=en_US.UTF-8
