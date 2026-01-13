@@ -11,6 +11,7 @@ PLATFORM="$(uname -m)"
 MIRROR=""
 PROXY=""
 DISABLE_DOCKER=""
+DISABLE_NVIM=""
 
 function setup_mac() {
   echo ""
@@ -39,7 +40,10 @@ function setup_ubuntu() {
   sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" </dev/null
   ${SUDO} chsh -s "$(command -v zsh)" "$USER"
   cp ~/.oh-my-zsh/themes/geoffgarside.zsh-theme ~/.oh-my-zsh/custom/themes/geoffgarside-custom.zsh-theme
-  sed -i -E '/^PROMPT=/{ /%n@%m/! s/%n/%n@%m/ }' ~/.oh-my-zsh/custom/themes/geoffgarside-custom.zsh-theme
+  sed -i -E \
+    -e '/^PROMPT=/{ /%n@%m/! s/%n/%n@%m/ }' \
+    -e '/^PROMPT=/{ s/%\(!\.\#\.\$\)/%(?.%(!.#.$).%{$fg[red]%}%(!.#.$)%{$reset_color%})/ }' \
+    ~/.oh-my-zsh/custom/themes/geoffgarside-custom.zsh-theme
   if [ -n "${PROXY}" ]; then
     sed -i "s/# proxy_addr=.*$/proxy_addr=${PROXY}/g" ${REPO_ROOT}/linux/zshrc
     sed -i '/# export https_proxy=.*$/ s/^# //' ${REPO_ROOT}/linux/zshrc
@@ -60,11 +64,18 @@ function setup_ubuntu() {
   wget "https://go.dev/dl/go${GO_VERSION}.linux-${TARGET_PLATFORM}.tar.gz" -O ${TMP_DIR}/go.tar.gz
   ${SUDO} tar zxf ${TMP_DIR}/go.tar.gz -C /usr/local
 
-  curl -fsSL -o ${TMP_DIR}/nvim.tar.gz "https://github.com/neovim/neovim/releases/latest/download/nvim-linux-${TARGET_PLATFORM}.tar.gz"
-  ${SUDO} tar zxf ${TMP_DIR}/nvim.tar.gz -C /usr/local
-  ${SUDO} mv /usr/local/nvim-linux-${TARGET_PLATFORM} /usr/local/nvim
-  mkdir -p ~/.config
-  ln -s ${REPO_ROOT}/nvim ~/.config
+  if [ -z "${DISABLE_NVIM}" ]; then
+    curl -fsSL -o ${TMP_DIR}/nvim.tar.gz "https://github.com/neovim/neovim/releases/latest/download/nvim-linux-${TARGET_PLATFORM}.tar.gz"
+    ${SUDO} tar zxf ${TMP_DIR}/nvim.tar.gz -C /usr/local
+    ${SUDO} mv /usr/local/nvim-linux-${TARGET_PLATFORM} /usr/local/nvim
+    mkdir -p ~/.config
+    ln -s ${REPO_ROOT}/nvim ~/.config
+
+    curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh | bash
+    nvm install node
+
+    git clone --depth=1 https://github.com/github/copilot.vim.git ~/.config/nvim/pack/github/start/copilot.vim
+  fi
 
   if [ -z "${DISABLE_DOCKER}" ]; then
     ${SUDO} curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
@@ -147,6 +158,10 @@ while [ $# -gt 0 ]; do
     ;;
   --disable-docker)
     DISABLE_DOCKER="true"
+    shift
+    ;;
+  --disable-nvim)
+    DISABLE_NVIM="true"
     shift
     ;;
   --)
