@@ -72,9 +72,7 @@ function setup_ubuntu() {
     ln -s ${REPO_ROOT}/nvim ~/.config
 
     curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh | bash
-    nvm install node
-
-    git clone --depth=1 https://github.com/github/copilot.vim.git ~/.config/nvim/pack/github/start/copilot.vim
+    nvm install node --lts
   fi
 
   if [ -z "${DISABLE_DOCKER}" ]; then
