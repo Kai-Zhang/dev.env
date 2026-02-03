@@ -78,13 +78,23 @@ return {
   },
   {
     "mason-org/mason.nvim",
-    opts = {
-      ensure_installed = {
+    opts = function(_, opts)
+      local uname = (vim.uv or vim.loop).os_uname()
+      local arch = uname and uname.machine or "unknown"
+      opts.install_root_dir = vim.fn.stdpath("data") .. "/mason-" .. arch
+
+      opts.ensure_installed = opts.ensure_installed or {}
+      local ensure = {
         "stylua",
         "shellcheck",
         "shfmt",
         "flake8",
-      },
-    },
+      }
+      for _, tool in ipairs(ensure) do
+        if not vim.tbl_contains(opts.ensure_installed, tool) then
+          table.insert(opts.ensure_installed, tool)
+        end
+      end
+    end,
   },
 }

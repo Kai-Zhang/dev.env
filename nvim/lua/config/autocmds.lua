@@ -17,6 +17,30 @@ vim.api.nvim_create_autocmd({ "FocusGained", "BufEnter", "CursorHold" }, {
   end,
 })
 
+-- Helm filetype detection for templates/values to enable proper highlighting and LSP
+vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
+  group = vim.api.nvim_create_augroup("user_helm_filetypes", { clear = true }),
+  pattern = {
+    "*/templates/*.yaml",
+    "*/templates/*.yml",
+    "*/templates/*.tpl",
+  },
+  callback = function()
+    vim.bo.filetype = "helm"
+  end,
+})
+
+vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
+  group = vim.api.nvim_create_augroup("user_helm_values_filetypes", { clear = true }),
+  pattern = {
+    "*/values*.yaml",
+    "*/values*.yml",
+  },
+  callback = function()
+    vim.bo.filetype = "yaml.helm-values"
+  end,
+})
+
 vim.api.nvim_create_autocmd("LspAttach", {
   group = vim.api.nvim_create_augroup("user_lsp_tsserver_keymaps", { clear = true }),
   callback = function(args)
