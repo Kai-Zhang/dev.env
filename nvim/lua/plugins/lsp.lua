@@ -8,6 +8,13 @@ return {
     opts = {
       ---@type lspconfig.options
       servers = {
+        gopls = {
+          settings = {
+            gopls = {
+              buildFlags = { "-tags=e2e" },
+            },
+          },
+        },
         pyright = {},
         tsserver = {},
       },
@@ -17,6 +24,7 @@ return {
           require("typescript").setup({ server = opts })
           return true
         end,
+        gopls = function() end,
       },
     },
   },
