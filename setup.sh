@@ -36,7 +36,7 @@ function setup_ubuntu() {
   ${SUDO} apt upgrade
   ${SUDO} apt install -y ack fuse3 git jq libatomic1 libfuse-dev libfuse3-dev make nodejs openjdk-17-jdk unzip vim wget zsh
 
-  git clone https://github.com/Kai-Zhang/dev.env.git ${REPO_ROOT}
+  git clone git@github.com:Kai-Zhang/dev.env.git ${REPO_ROOT}
 
   sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" </dev/null
   ${SUDO} chsh -s "$(command -v zsh)" "$USER"
