@@ -12,6 +12,7 @@ MIRROR=""
 PROXY=""
 DISABLE_DOCKER=""
 DISABLE_NVIM=""
+GO_VERSION="${GO_VERSION:-1.27.1}"
 
 function setup_mac() {
   echo ""
@@ -33,7 +34,7 @@ function setup_ubuntu() {
   fi
   ${SUDO} apt update
   ${SUDO} apt upgrade
-  ${SUDO} apt install -y ack fuse3 git jq libfuse-dev libfuse3-dev make nodejs openjdk-17-jdk unzip vim wget zsh
+  ${SUDO} apt install -y ack fuse3 git jq libatomic1 libfuse-dev libfuse3-dev make nodejs openjdk-17-jdk unzip vim wget zsh
 
   git clone https://github.com/Kai-Zhang/dev.env.git ${REPO_ROOT}
 
@@ -59,20 +60,34 @@ function setup_ubuntu() {
 
   ${SUDO} tic -x -o /usr/share/terminfo/ ${REPO_ROOT}/ghostty.ti
 
-  [ "${PLATFORM}" == "aarch64" ] && TARGET_PLATFORM=arm64 || TARGET_PLATFORM=${PLATFORM}
-  GO_VERSION=1.24.5
+  case "${PLATFORM}" in
+  aarch64)
+    TARGET_PLATFORM=arm64
+    NVIM_PLATFORM=arm64
+    ;;
+  x86_64)
+    TARGET_PLATFORM=amd64
+    NVIM_PLATFORM=x86_64
+    ;;
+  *)
+    TARGET_PLATFORM=${PLATFORM}
+    NVIM_PLATFORM=${PLATFORM}
+    ;;
+  esac
   wget "https://go.dev/dl/go${GO_VERSION}.linux-${TARGET_PLATFORM}.tar.gz" -O ${TMP_DIR}/go.tar.gz
   ${SUDO} tar zxf ${TMP_DIR}/go.tar.gz -C /usr/local
 
   if [ -z "${DISABLE_NVIM}" ]; then
-    curl -fsSL -o ${TMP_DIR}/nvim.tar.gz "https://github.com/neovim/neovim/releases/latest/download/nvim-linux-${TARGET_PLATFORM}.tar.gz"
+    curl -fsSL -o ${TMP_DIR}/nvim.tar.gz "https://github.com/neovim/neovim/releases/latest/download/nvim-linux-${NVIM_PLATFORM}.tar.gz"
     ${SUDO} tar zxf ${TMP_DIR}/nvim.tar.gz -C /usr/local
-    ${SUDO} mv /usr/local/nvim-linux-${TARGET_PLATFORM} /usr/local/nvim
+    ${SUDO} mv /usr/local/nvim-linux-${NVIM_PLATFORM} /usr/local/nvim
     mkdir -p ~/.config
     ln -s ${REPO_ROOT}/nvim ~/.config
 
-    curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh | bash
-    nvm install node --lts
+    curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh | NVM_DIR="$HOME/.nvm" PROFILE=/dev/null bash
+    export NVM_DIR="$HOME/.nvm"
+    . "$NVM_DIR/nvm.sh"
+    nvm install --lts
   fi
 
   if [ -z "${DISABLE_DOCKER}" ]; then
@@ -81,15 +96,20 @@ function setup_ubuntu() {
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" | ${SUDO} tee /etc/apt/sources.list.d/docker.list >/dev/null
     ${SUDO} apt update
     ${SUDO} apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-    ${SUDO} groupadd docker
+    ${SUDO} groupadd -f docker
     ${SUDO} usermod -aG docker $USER
   fi
 
-  ${SUDO} apt install -y apt-transport-https ca-certificates gnupg
-  curl -fsS https://baltocdn.com/helm/signing.asc | gpg --dearmor | ${SUDO} tee /usr/share/keyrings/helm.gpg >/dev/null
-  echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/helm.gpg] https://baltocdn.com/helm/stable/debian/ all main" | ${SUDO} tee /etc/apt/sources.list.d/helm-stable-debian.list
+  HELM_BUILDKITE_APT_KEY_ID="DDF78C3E6EBB2D2CC223C95C62BA89D07698DBC6"
+  ${SUDO} apt install -y curl gpg apt-transport-https
+  curl -fsSL https://packages.buildkite.com/helm-linux/helm-debian/gpgkey > "${TMPDIR:-/tmp}/helm.gpg"
+  if [ "$(gpg --show-keys --with-colons "${TMPDIR:-/tmp}/helm.gpg" | awk -F: '$1 == "fpr" {print $10}' | head -n 1)" != "${HELM_BUILDKITE_APT_KEY_ID}" ]; then echo "ERROR: Unexpected Helm APT key ID: potential key compromise"; exit 1; fi
+  cat "${TMPDIR:-/tmp}/helm.gpg" | gpg --dearmor | ${SUDO} tee /usr/share/keyrings/helm.gpg >/dev/null
+  echo "deb [signed-by=/usr/share/keyrings/helm.gpg] https://packages.buildkite.com/helm-linux/helm-debian/any/ any main" | ${SUDO} tee /etc/apt/sources.list.d/helm-stable-debian.list
   ${SUDO} apt update
-  ${SUDO} apt install -y helm
+  HELM_VERSION="$(apt-cache madison helm | awk '$3 ~ /^3\./ {print $3}' | sort -Vr | head -n 1)"
+  if [ -z "${HELM_VERSION}" ]; then echo "ERROR: No Helm 3 package found"; exit 1; fi
+  ${SUDO} apt install -y --allow-downgrades "helm=${HELM_VERSION}"
 
   curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.33/deb/Release.key | ${SUDO} gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg >/dev/null
   ${SUDO} chmod 644 /etc/apt/keyrings/kubernetes-apt-keyring.gpg
@@ -134,10 +154,12 @@ function print_help() {
   echo "Usage: $0 [options]"
   echo ""
   echo "Options:"
-  echo "  --disable-docker  Disable the docker installation(for pre-bundled or future configuration)"
-  echo "  -h/--help         Print the help message"
-  echo "  -m/--mirror       (linux) Set the package manager mirror"
-  echo "  --proxy           Set the http proxy of command line"
+  echo "  --disable-docker       Disable the docker installation(for pre-bundled or future configuration)"
+  echo "  --disable-nvim         Disable the Neovim and NVM installation"
+  echo "  --go-version VERSION   (linux) Set the Go version (default: 1.27.1, env: GO_VERSION)"
+  echo "  -h/--help              Print the help message"
+  echo "  -m/--mirror MIRROR     (linux) Set the package manager mirror"
+  echo "  --proxy PROXY          Set the http proxy of command line"
 }
 
 while [ $# -gt 0 ]; do
@@ -152,6 +174,10 @@ while [ $# -gt 0 ]; do
     ;;
   --proxy)
     PROXY=$2
+    shift 2
+    ;;
+  --go-version)
+    GO_VERSION=$2
     shift 2
     ;;
   --disable-docker)
