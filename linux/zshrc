@@ -118,3 +118,96 @@ export NVM_DIR="$HOME/.nvm"
 # alias zshconfig="mate ~/.zshrc"
 # alias ohmyzsh="mate ~/.oh-my-zsh"
 alias glog="git log --graph --abbrev-commit --decorate --format=format:'%C(bold blue)%h%C(reset) - %C(bold cyan)%aD%C(reset) %C(bold green)(%ar)%C(reset)%C(bold yellow)%d%C(reset)%n''          %C(white)%s%C(reset) %C(dim white)- %C(bold blue)<%an>%C(reset)'"
+alias vim=nvim
+
+# ---- cc-history: read a Claude Code session transcript ----
+# Prints your prompts (🧑) and the model's replies (🤖) in order, skipping
+# thinking blocks, tool calls, and tool results. Pages through less on a tty.
+# Usage:
+#   cc-history               # newest session in the current project
+#   cc-history <id>          # <id>.jsonl in the current project
+#   cc-history <file.jsonl>  # an explicit transcript file
+#   cc-history -l            # list this project's sessions, newest first
+cc-history() {
+  emulate -L zsh
+  local base="$HOME/.claude/projects"
+  local name="${PWD//\//-}"; name="${name//./-}"   # mirror CC's project-dir encoding
+  local proj="$base/$name"
+  local file
+
+  if [[ "$1" == "-l" ]]; then
+    local found=("$proj"/*.jsonl(Nom))
+    (( $#found )) && ls -lat "${found[@]}" || echo "cc-history: no sessions in $proj" >&2
+    return
+  fi
+
+  if [[ -n "$1" ]]; then
+    if [[ -f "$1" ]]; then file="$1"
+    elif [[ -f "$proj/$1.jsonl" ]]; then file="$proj/$1.jsonl"
+    elif [[ -f "$proj/$1" ]]; then file="$proj/$1"
+    else echo "cc-history: session '$1' not found in $proj" >&2; return 1; fi
+  else
+    local sessions=("$proj"/*.jsonl(Nom))
+    (( $#sessions )) || { echo "cc-history: no sessions for $PWD (looked in $proj)" >&2; return 1; }
+    file="$sessions[1]"
+  fi
+
+  local pager=(less -R)
+  [[ -t 1 ]] || pager=(cat)
+  jq -r '
+    if .type=="user" then
+      (.message.content as $c
+       | if ($c|type)=="string" then "🧑 \($c)\n"
+         else ($c[]? | select(.type=="text") | "🧑 \(.text)\n") end)
+    elif .type=="assistant" then
+      (.message.content[]? | select(.type=="text") | "🤖 \(.text)\n")
+    else empty end
+  ' "$file" | "${pager[@]}"
+}
+# ---- codex-history: read an OpenAI Codex session transcript ----
+# Prints user prompts (🧑) and agent responses (🤖) from a Codex .jsonl file.
+# Usage:
+#   codex-history <file.jsonl>          # user + final response only
+#   codex-history -v <file.jsonl>       # also show tool calls (🔧) & narration (💭)
+#   codex-history -f <file.jsonl>       # also show tool outputs (implies -v)
+codex-history() {
+  emulate -L zsh
+  local verbose=0 full=0 file
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -v) verbose=1; shift ;;
+      -f) full=1; verbose=1; shift ;;
+      -h|--help)
+        cat <<'HELP'
+Usage: codex-history [-v|-f] <file.jsonl>
+  (no flag)  Show user messages and final agent responses
+  -v         Also show tool calls and agent narration
+  -f         Also show tool call outputs (implies -v)
+HELP
+        return 0 ;;
+      *) file="$1"; shift ;;
+    esac
+  done
+
+  [[ -z "$file" ]] && { echo "codex-history: no file specified" >&2; return 1; }
+  [[ -f "$file" ]] || { echo "codex-history: file not found: $file" >&2; return 1; }
+
+  local pager=(less -R)
+  [[ -t 1 ]] || pager=(cat)
+
+  jq -r --argjson verbose "$verbose" --argjson full "$full" '
+    if .type == "event_msg" then
+      if .payload.type == "user_message" then "🧑 \(.payload.message)\n"
+      elif .payload.type == "agent_message" and $verbose then "💭 \(.payload.message)\n"
+      elif .payload.type == "task_complete" then "🤖 \(.payload.last_agent_message)\n"
+      else empty end
+    elif .type == "response_item" then
+      if .payload.type == "function_call" and $verbose then
+        "🔧 \(.payload.name)(\(.payload.arguments | gsub("\n"; " ") | if length > 120 then .[0:120] + "…" else . end))\n"
+      elif .payload.type == "function_call_output" and $full then
+        "   ⮑ \(.payload.output | gsub("\n"; " ") | if length > 200 then .[0:200] + "…" else . end)\n"
+      else empty end
+    else empty end
+  ' "$file" | "${pager[@]}"
+}
