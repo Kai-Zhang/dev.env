@@ -55,6 +55,8 @@ function setup_ubuntu() {
   fi
   rm -f ~/.zshrc
   ln -s ${REPO_ROOT}/linux/zshrc ~/.zshrc
+  rm -f ~/.tmux.conf
+  ln -s ${REPO_ROOT}/tmux.conf ~/.tmux.conf
   rm -f /etc/vim/vimrc.local
   ${SUDO} ln -s ${REPO_ROOT}/vimrc /etc/vim/vimrc.local
 
