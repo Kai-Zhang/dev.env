@@ -40,29 +40,3 @@ vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
     vim.bo.filetype = "yaml.helm-values"
   end,
 })
-
-vim.api.nvim_create_autocmd("LspAttach", {
-  group = vim.api.nvim_create_augroup("user_lsp_tsserver_keymaps", { clear = true }),
-  callback = function(args)
-    local client = vim.lsp.get_client_by_id(args.data.client_id)
-    if not client or client.name ~= "tsserver" then
-      return
-    end
-    if vim.fn.exists(":TypescriptOrganizeImports") == 2 then
-      vim.keymap.set(
-        "n",
-        "<leader>co",
-        "<cmd>TypescriptOrganizeImports<CR>",
-        { buffer = args.buf, desc = "Organize Imports" }
-      )
-    end
-    if vim.fn.exists(":TypescriptRenameFile") == 2 then
-      vim.keymap.set(
-        "n",
-        "<leader>cR",
-        "<cmd>TypescriptRenameFile<CR>",
-        { buffer = args.buf, desc = "Rename File" }
-      )
-    end
-  end,
-})
