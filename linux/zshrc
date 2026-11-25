@@ -73,6 +73,12 @@ HIST_STAMPS="mm/dd/yyyy"
 # Add wisely, as too many plugins slow down shell startup.
 plugins=(git last-working-dir kubectl)
 
+# tmux chooses the working directory for new/restored panes, including HOME.
+# Keep last-working-dir hooks and manual lwd, but skip its startup jump in tmux.
+if [[ -n "${TMUX:-}" ]]; then
+  typeset -g ZSH_LAST_WORKING_DIRECTORY=1
+fi
+
 source $ZSH/oh-my-zsh.sh
 
 # User configuration
