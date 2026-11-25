@@ -102,7 +102,7 @@ export LANG=en_US.UTF-8
 export EDITOR=vim
 
 # Java flags
-export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-$(dpkg --print-architecture)
 
 # Setup nodejs
 export NVM_DIR="$HOME/.nvm"
