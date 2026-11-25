@@ -57,6 +57,13 @@ function setup_ubuntu() {
   ln -s ${REPO_ROOT}/linux/zshrc ~/.zshrc
   rm -f ~/.tmux.conf
   ln -s ${REPO_ROOT}/tmux.conf ~/.tmux.conf
+  # tmux.conf loads these plugins from ~/.tmux/plugins.
+  mkdir -p ~/.tmux/plugins
+  for plugin in tmux-resurrect tmux-continuum; do
+    if [ ! -d ~/.tmux/plugins/${plugin} ]; then
+      git clone https://github.com/tmux-plugins/${plugin}.git ~/.tmux/plugins/${plugin}
+    fi
+  done
   rm -f /etc/vim/vimrc.local
   ${SUDO} ln -s ${REPO_ROOT}/vimrc /etc/vim/vimrc.local
   # Personal command-line tools: link everything in bin/ into ~/.local/bin.
