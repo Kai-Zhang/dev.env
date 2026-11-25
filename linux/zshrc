@@ -126,50 +126,6 @@ export NVM_DIR="$HOME/.nvm"
 alias glog="git log --graph --abbrev-commit --decorate --format=format:'%C(bold blue)%h%C(reset) - %C(bold cyan)%aD%C(reset) %C(bold green)(%ar)%C(reset)%C(bold yellow)%d%C(reset)%n''          %C(white)%s%C(reset) %C(dim white)- %C(bold blue)<%an>%C(reset)'"
 alias vim=nvim
 
-# ---- cc-history: read a Claude Code session transcript ----
-# Prints your prompts (🧑) and the model's replies (🤖) in order, skipping
-# thinking blocks, tool calls, and tool results. Pages through less on a tty.
-# Usage:
-#   cc-history               # newest session in the current project
-#   cc-history <id>          # <id>.jsonl in the current project
-#   cc-history <file.jsonl>  # an explicit transcript file
-#   cc-history -l            # list this project's sessions, newest first
-cc-history() {
-  emulate -L zsh
-  local base="$HOME/.claude/projects"
-  local name="${PWD//\//-}"; name="${name//./-}"   # mirror CC's project-dir encoding
-  local proj="$base/$name"
-  local file
-
-  if [[ "$1" == "-l" ]]; then
-    local found=("$proj"/*.jsonl(Nom))
-    (( $#found )) && ls -lat "${found[@]}" || echo "cc-history: no sessions in $proj" >&2
-    return
-  fi
-
-  if [[ -n "$1" ]]; then
-    if [[ -f "$1" ]]; then file="$1"
-    elif [[ -f "$proj/$1.jsonl" ]]; then file="$proj/$1.jsonl"
-    elif [[ -f "$proj/$1" ]]; then file="$proj/$1"
-    else echo "cc-history: session '$1' not found in $proj" >&2; return 1; fi
-  else
-    local sessions=("$proj"/*.jsonl(Nom))
-    (( $#sessions )) || { echo "cc-history: no sessions for $PWD (looked in $proj)" >&2; return 1; }
-    file="$sessions[1]"
-  fi
-
-  local pager=(less -R)
-  [[ -t 1 ]] || pager=(cat)
-  jq -r '
-    if .type=="user" then
-      (.message.content as $c
-       | if ($c|type)=="string" then "🧑 \($c)\n"
-         else ($c[]? | select(.type=="text") | "🧑 \(.text)\n") end)
-    elif .type=="assistant" then
-      (.message.content[]? | select(.type=="text") | "🤖 \(.text)\n")
-    else empty end
-  ' "$file" | "${pager[@]}"
-}
 # ---- codex-history: read an OpenAI Codex session transcript ----
 # Prints user prompts (🧑) and agent responses (🤖) from a Codex .jsonl file.
 # Usage:

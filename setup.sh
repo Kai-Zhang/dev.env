@@ -59,6 +59,13 @@ function setup_ubuntu() {
   ln -s ${REPO_ROOT}/tmux.conf ~/.tmux.conf
   rm -f /etc/vim/vimrc.local
   ${SUDO} ln -s ${REPO_ROOT}/vimrc /etc/vim/vimrc.local
+  # Personal command-line tools: link everything in bin/ into ~/.local/bin.
+  mkdir -p ~/.local/bin
+  for tool in ${REPO_ROOT}/bin/*; do
+    if [ -f "${tool}" ]; then
+      ln -sf "${tool}" ~/.local/bin/
+    fi
+  done
 
   ${SUDO} tic -x -o /usr/share/terminfo/ ${REPO_ROOT}/ghostty.ti
 

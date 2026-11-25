@@ -1,0 +1,278 @@
+#!/usr/bin/env python3
+"""管理 ~/.claude/projects 下的 Claude Code 会话记录。
+
+用法:
+  {prog} list [--all] [--empty] [--project 子串]     列出会话（默认只列当前目录的项目）
+  {prog} find <关键词>... [--here] [--project 子串] [--tools]
+                                                     按 PR 号、Jira 号或任意文字找会话（默认搜所有项目）
+  {prog} show [<id前缀>|<文件.jsonl>]                阅读一个会话的对话（默认是当前项目最新的一个）
+  {prog} rm <id前缀>...                              删除会话（jsonl + 同名子目录 + file-history）
+  {prog} rm-empty [--all]                            删除没有任何用户输入的空会话
+  {prog} fix-mtime                                   用 jsonl 内部最后一条 timestamp 恢复文件 mtime
+
+find 搜的是会话标题、你打的 prompt 和助手的回复；多个关键词要同时出现。
+纯数字的关键词（1079 或 #1079）按完整数字匹配，不匹配 SHA 或更长数字里的片段。
+加 --tools 连工具调用和输出一起搜。
+rm 和 rm-empty 默认 dry-run 打印将要删除的内容；加 --yes 才真正删除。
+"""
+import os, re, sys, json, glob, shutil, datetime, subprocess
+
+ROOT = os.path.expanduser('~/.claude/projects')
+FH = os.path.expanduser('~/.claude/file-history')
+PROG = os.path.basename(sys.argv[0])
+
+def encode(cwd):
+    return re.sub(r'[^A-Za-z0-9-]', '-', cwd)
+
+def project_dir():
+    cwd = os.getcwd()
+    d = os.path.join(ROOT, encode(cwd))
+    alt = os.path.join(ROOT, cwd.replace('/', '-'))
+    return alt if not os.path.isdir(d) and os.path.isdir(alt) else d
+
+def records(path):
+    with open(path, errors='replace') as fh:
+        for line in fh:
+            try: d = json.loads(line)
+            except Exception: continue
+            if isinstance(d, dict):
+                yield d
+
+def typed_text(d):
+    """用户手打的文字；工具结果、斜杠命令和系统注入的内容返回 None。"""
+    if d.get('type') != 'user' or d.get('isMeta') or d.get('isSidechain') or d.get('isCompactSummary'):
+        return None
+    m = d.get('message'); c = m.get('content') if isinstance(m, dict) else None
+    if isinstance(c, str):
+        t = c
+    elif isinstance(c, list):
+        if any(isinstance(p, dict) and p.get('type') == 'tool_result' for p in c):
+            return None
+        t = '\n'.join(p.get('text', '') for p in c if isinstance(p, dict) and p.get('type') == 'text')
+    else:
+        return None
+    t = t.strip()
+    return None if not t or t.startswith('<') else t
+
+def reply_texts(d):
+    if d.get('type') != 'assistant' or d.get('isSidechain'):
+        return []
+    m = d.get('message'); c = m.get('content') if isinstance(m, dict) else None
+    if not isinstance(c, list):
+        return []
+    return [p.get('text', '') for p in c if isinstance(p, dict) and p.get('type') == 'text' and p.get('text')]
+
+def tool_texts(d):
+    m = d.get('message'); c = m.get('content') if isinstance(m, dict) else None
+    out = []
+    if isinstance(c, list):
+        for p in c:
+            if not isinstance(p, dict):
+                continue
+            if p.get('type') == 'tool_use':
+                out.append(json.dumps(p.get('input'), ensure_ascii=False))
+            elif p.get('type') == 'tool_result':
+                r = p.get('content')
+                out.append(r if isinstance(r, str) else json.dumps(r, ensure_ascii=False))
+    return out
+
+def title_of(d):
+    if d.get('type') == 'custom-title':
+        return d.get('customTitle')
+    if d.get('type') == 'ai-title':
+        return d.get('aiTitle')
+    return None
+
+def scan(paths):
+    rows = []
+    for f in paths:
+        first = last = None; prompt = None; n = 0
+        with open(f, errors='replace') as fh:
+            for line in fh:
+                n += 1
+                try: d = json.loads(line)
+                except Exception: continue
+                ts = d.get('timestamp')
+                if ts:
+                    first = first or ts; last = ts
+                if prompt is None and d.get('type') == 'user':
+                    m = d.get('message', {}); c = m.get('content') if isinstance(m, dict) else None
+                    if isinstance(c, str): prompt = c
+                    elif isinstance(c, list):
+                        for p in c:
+                            if isinstance(p, dict) and p.get('type') == 'text':
+                                prompt = p['text']; break
+        rows.append(dict(path=f, id=os.path.basename(f)[:-6], project=os.path.basename(os.path.dirname(f)),
+                         first=first or '', last=last or '', lines=n, size=os.path.getsize(f),
+                         prompt=(prompt or '').replace('\n', ' ').strip()))
+    rows.sort(key=lambda r: r['last'])
+    return rows
+
+def option(args, name):
+    return next((args[i+1] for i, a in enumerate(args[:-1]) if a == name), None)
+
+def select(args):
+    if '--all' in args:
+        return glob.glob(ROOT + '/*/*.jsonl')
+    proj = option(args, '--project')
+    if proj:
+        return glob.glob(f'{ROOT}/*{proj}*/*.jsonl')
+    return glob.glob(project_dir() + '/*.jsonl')
+
+def cmd_list(args):
+    rows = scan(select(args))
+    if '--empty' in args:
+        rows = [r for r in rows if not r['prompt']]
+    for r in rows:
+        print(f"{r['last'][:16]:16s} {r['id'][:8]} {r['lines']:5d}行 {r['size']//1024:6d}K {r['project'][19:]:30s} {r['prompt'][:60] or '<无用户输入>'}")
+    print(f'共 {len(rows)} 个')
+
+def matcher(word):
+    if re.fullmatch(r'#?\d+', word):
+        return re.compile(r'(?<![0-9A-Za-z])' + word.lstrip('#') + r'(?![0-9A-Za-z])')
+    return re.compile(re.escape(word), re.I)
+
+def snippet(text, rx, width=44):
+    m = rx.search(text)
+    a = max(0, m.start() - width); b = min(len(text), m.end() + width)
+    return ('…' if a else '') + ' '.join(text[a:b].split()) + ('…' if b < len(text) else '')
+
+def cmd_find(args):
+    proj = option(args, '--project')
+    words = [a for i, a in enumerate(args) if not a.startswith('--') and not (i and args[i-1] == '--project')]
+    if not words:
+        sys.exit('需要至少一个关键词，例如 PR 号或 Jira 号')
+    rxs = [matcher(w) for w in words]
+    if '--here' in args:
+        paths = glob.glob(project_dir() + '/*.jsonl')
+    elif proj:
+        paths = glob.glob(f'{ROOT}/*{proj}*/*.jsonl')
+    else:
+        paths = glob.glob(ROOT + '/*/*.jsonl')
+    kinds = ['title', 'prompt', 'reply'] + (['tool'] if '--tools' in args else [])
+    hits = []
+    for f in paths:
+        with open(f, errors='replace') as fh:
+            raw = fh.read()
+        if all(w.isascii() for w in words) and not all(rx.search(raw) for rx in rxs):
+            continue
+        count = dict.fromkeys(kinds, 0); found = [False] * len(rxs); snip = {}
+        title = cwd = last = ''
+        for line in raw.split('\n'):
+            try: d = json.loads(line)
+            except Exception: continue
+            if not isinstance(d, dict):
+                continue
+            last = d.get('timestamp') or last
+            cwd = cwd or d.get('cwd') or ''
+            texts = []
+            t = title_of(d)
+            if t:
+                if t != title:
+                    title = t; texts.append(('title', t))
+            else:
+                p = typed_text(d)
+                if p:
+                    texts.append(('prompt', p))
+                texts += [('reply', x) for x in reply_texts(d)]
+                if 'tool' in kinds and not d.get('isSidechain'):
+                    texts += [('tool', x) for x in tool_texts(d)]
+            for kind, text in texts:
+                matched = False
+                for i, rx in enumerate(rxs):
+                    if rx.search(text):
+                        found[i] = matched = True
+                        snip.setdefault(kind, snippet(text, rx))
+                count[kind] += matched
+        if all(found):
+            hits.append(dict(path=f, last=last, cwd=cwd, title=title, count=count,
+                             snip=next(snip[k] for k in ('prompt', 'reply', 'title', 'tool') if k in snip)))
+    hits.sort(key=lambda h: h['last'])
+    label = dict(title='标题', prompt='prompt', reply='回复', tool='工具')
+    for h in hits:
+        where = ' '.join(f"{label[k]}{h['count'][k]}" for k in kinds if h['count'][k])
+        print(f"{h['last'][:16]:16s} {os.path.basename(h['path'])[:-6]}  [{where}]  {h['title'] or '<无标题>'}")
+        print(f"    目录 {h['cwd'] or '?'}")
+        print(f"    {h['snip']}")
+    print(f"共 {len(hits)} 个会话包含 {' '.join(words)}；恢复用 claude --resume <id>（在上面的目录里）")
+
+def resolve(target):
+    if target is None:
+        files = sorted(glob.glob(project_dir() + '/*.jsonl'), key=os.path.getmtime)
+        if not files:
+            sys.exit(f'当前目录没有会话（找的是 {project_dir()}）')
+        return files[-1]
+    if os.path.isfile(target):
+        return target
+    name = target[:-6] if target.endswith('.jsonl') else target
+    files = glob.glob(f'{project_dir()}/{name}*.jsonl') or glob.glob(f'{ROOT}/*/{name}*.jsonl')
+    if not files:
+        sys.exit(f'找不到会话: {target}')
+    if len(files) > 1:
+        sys.exit('id 前缀不唯一:\n' + '\n'.join('  ' + f for f in files))
+    return files[0]
+
+def cmd_show(args):
+    target = next((a for a in args if not a.startswith('--')), None)
+    path = resolve(target)
+    out = []
+    for d in records(path):
+        p = typed_text(d)
+        if p:
+            out.append(f'🧑 {p}\n')
+        out += [f'🤖 {x}\n' for x in reply_texts(d)]
+    if not out:
+        sys.exit(f'这个会话里没有手打的 prompt 或回复: {path}')
+    text = '\n'.join(out)
+    if sys.stdout.isatty() and shutil.which('less'):
+        subprocess.run(['less', '-R'], input=text.encode(), check=False)
+    else:
+        try:
+            sys.stdout.write(text + '\n')
+        except BrokenPipeError:
+            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+
+def remove(rows, yes):
+    for r in rows:
+        targets = [r['path'], r['path'][:-6], os.path.join(FH, r['id'])]
+        targets = [t for t in targets if os.path.exists(t)]
+        print(('删除 ' if yes else '[dry-run] ') + r['id'][:8] + ' ' + (r['prompt'][:50] or '<无用户输入>'))
+        for t in targets:
+            print('   ', t)
+            if yes:
+                shutil.rmtree(t) if os.path.isdir(t) else os.remove(t)
+    if not yes:
+        print('加 --yes 执行删除')
+
+def cmd_rm(args):
+    yes = '--yes' in args
+    prefixes = [a for a in args if not a.startswith('--')]
+    if not prefixes:
+        sys.exit('需要 id 前缀')
+    rows = scan(glob.glob(ROOT + '/*/*.jsonl'))
+    hit = [r for r in rows if any(r['id'].startswith(p) for p in prefixes)]
+    missing = [p for p in prefixes if not any(r['id'].startswith(p) for r in hit)]
+    if missing:
+        sys.exit(f'找不到: {missing}')
+    remove(hit, yes)
+
+def cmd_rm_empty(args):
+    rows = [r for r in scan(select(args)) if not r['prompt']]
+    remove(rows, '--yes' in args)
+
+def cmd_fix_mtime(args):
+    n = 0
+    for r in scan(glob.glob(ROOT + '/*/*.jsonl')):
+        if not r['last']:
+            continue
+        ts = datetime.datetime.fromisoformat(r['last'].replace('Z', '+00:00')).timestamp()
+        if abs(os.path.getmtime(r['path']) - ts) > 60:
+            os.utime(r['path'], (ts, ts)); n += 1
+    print(f'已修正 {n} 个文件的 mtime')
+
+if __name__ == '__main__':
+    cmds = {'list': cmd_list, 'find': cmd_find, 'show': cmd_show, 'rm': cmd_rm,
+            'rm-empty': cmd_rm_empty, 'fix-mtime': cmd_fix_mtime}
+    if len(sys.argv) < 2 or sys.argv[1] not in cmds:
+        sys.exit(__doc__.format(prog=PROG))
+    cmds[sys.argv[1]](sys.argv[2:])
